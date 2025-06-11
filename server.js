@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws';
 import { createMergeableStore } from 'tinybase';
 import { createWsServer } from 'tinybase/synchronizers/synchronizer-ws-server';
 import { createWsSynchronizer } from 'tinybase/synchronizers/synchronizer-ws-client';
-
+import cors from 'cors';
 
 // Create TinyBase store
 const store = createMergeableStore();
@@ -14,38 +14,56 @@ const store = createMergeableStore();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Enable CORS
+app.use(cors());
+
 // Create HTTP server
 const server = http.createServer(app);
 
-// Create WebSocket server
-const wss = new WebSocketServer({ server });
+// Create WebSocket server with proper options
+const wss = new WebSocketServer({
+    server,
+    path: '/ws', // Add specific path for WebSocket
+    clientTracking: true,
+    perMessageDeflate: false
+});
 
 // Initialize TinyBase WebSocket server
 const wsServer = createWsServer(wss);
 
 // Handle WebSocket connections
-wss.on('connection', async (ws) => {
-    console.log('New client connected');
+wss.on('connection', async (ws, req) => {
+    console.log('New client connected from:', req.socket.remoteAddress);
 
-    // Create synchronizer for each client
-    const synchronizer = await createWsSynchronizer(store, ws);
-    await synchronizer.startSync();
+    try {
+        // Create synchronizer for each client
+        const synchronizer = await createWsSynchronizer(store, ws);
+        await synchronizer.startSync();
 
-    ws.on('close', () => {
-        console.log('Client disconnected');
-        synchronizer.destroy();
-    });
+        ws.on('close', () => {
+            console.log('Client disconnected');
+            synchronizer.destroy();
+        });
+
+        ws.on('error', (error) => {
+            console.error('WebSocket error:', error);
+        });
+    } catch (error) {
+        console.error('Error setting up synchronizer:', error);
+    }
 });
-
-
-// add route to create rooms  and users will join thse rooms  
 
 // Basic route
 app.get('/', (req, res) => {
     res.send('🧠 TinyBase WebSocket Server running!');
 });
 
-// Start server
-server.listen(PORT, () => {
-    console.log(`🚀 Server running at http://localhost:${PORT}`);
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
 });
+
+// Start server
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+}); 
